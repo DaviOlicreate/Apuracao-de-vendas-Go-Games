@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório de Performance - Janeiro 2026</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f0f4f8; }
+        .card-shadow { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        .animate-fade-in { animation: fadeIn 1s ease-out; }
+        .glass-effect { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Componentes Reutilizáveis ---
+
+        const Icon = ({ name, size = 24, color = "currentColor", className="" }) => {
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (iconRef.current) {
+                    lucide.createIcons({
+                        icons: { [name]: true },
+                        nameAttr: 'data-lucide',
+                        attrs: { class: className, width: size, height: size, stroke: color, "stroke-width": 2 }
+                    });
+                    const svg = iconRef.current.querySelector('svg');
+                    if(svg) svg.innerHTML = lucide.icons[name].toSvg({width: size, height: size, color: color, class: className});
+                }
+            }, [name, size, color, className]);
+            return <span ref={iconRef} dangerouslySetInnerHTML={{ __html: lucide.icons[name] ? lucide.icons[name].toSvg({width: size, height: size, color: color, class: className}) : '' }} />;
+        };
+
+        const Badge = ({ icon, text, colorClass }) => (
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide ${colorClass}`}>
+                <Icon name={icon} size={14} />
+                {text}
+            </div>
+        );
+
+        const StatCard = ({ title, value, subtext, trend, icon, color, footer }) => (
+            <div className="bg-white p-6 rounded-2xl card-shadow border-b-4 border-b-transparent hover:border-b-blue-500 transition-all duration-300 relative overflow-hidden group">
+                <div className={`absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity ${color.replace('bg-', 'text-')}`}>
+                    <Icon name={icon} size={64} />
+                </div>
+                <div className="relative z-10">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className={`p-3 rounded-xl ${color} text-white shadow-lg shadow-blue-500/30`}>
+                            <Icon name={icon} size={24} color="white" />
+                        </div>
+                        {trend && (
+                            <span className="bg-emerald-100 text-emerald-700 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 shadow-sm">
+                                <Icon name="trending-down" size={12} color="#047857" /> {trend}
+                            </span>
+                        )}
+                    </div>
+                    <h3 className="text-slate-500 text-sm font-semibold uppercase tracking-wider mb-1">{title}</h3>
+                    <p className="text-4xl font-extrabold text-slate-800 mb-2 tracking-tight">{value}</p>
+                    <p className="text-slate-500 text-sm font-medium">{subtext}</p>
+                    {footer && (
+                        <div className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400">
+                            {footer}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+
+        const FunnelStep = ({ label, value, color, width, icon }) => (
+            <div className="relative mb-4 group">
+                <div className="flex items-center mb-2 justify-between px-2">
+                    <div className="flex items-center gap-2 text-slate-700 font-bold">
+                        <div className={`p-1.5 rounded-md ${color} text-white`}>
+                            <Icon name={icon} size={14} />
+                        </div>
+                        {label}
+                    </div>
+                    <span className="font-mono text-slate-600 font-bold">{value}</span>
+                </div>
+                <div className="h-10 bg-slate-100 rounded-lg overflow-hidden relative shadow-inner">
+                    <div 
+                        className={`h-full ${color} transition-all duration-1000 ease-out flex items-center justify-end px-3 relative overflow-hidden`} 
+                        style={{ width: width }}
+                    >
+                        <div className="absolute inset-0 bg-white opacity-20 transform -skew-x-12 translate-x-full group-hover:animate-shimmer"></div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // --- App Principal ---
+
+        const App = () => {
+            const chartRef = useRef(null);
+            const salesChartRef = useRef(null);
+
+            useEffect(() => {
+                // Gráfico de CPL
+                if (chartRef.current) {
+                    const ctx = chartRef.current.getContext('2d');
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: ['Outubro', 'Novembro', 'Dezembro', 'Janeiro 🚀'],
+                            datasets: [{
+                                label: 'Custo por Lead (Quanto pagamos por contato)',
+                                data: [7.54, 7.20, 8.89, 5.00],
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                borderColor: '#10b981',
+                                borderWidth: 3,
+                                pointBackgroundColor: '#ffffff',
+                                pointBorderColor: '#10b981',
+                                pointBorderWidth: 3,
+                                pointRadius: 6,
+                                pointHoverRadius: 8,
+                                fill: true,
+                                tension: 0.4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    backgroundColor: '#1e293b',
+                                    padding: 12,
+                                    titleFont: { size: 14 },
+                                    bodyFont: { size: 14 },
+                                    callbacks: { label: (context) => `R$ ${context.raw.toFixed(2)} por contato` }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    grid: { color: '#f1f5f9', borderDash: [5, 5] },
+                                    ticks: { callback: (value) => 'R$ ' + value }
+                                },
+                                x: { grid: { display: false } }
+                            }
+                        }
+                    });
+                }
+
+                // Gráfico de Vendas
+                if (salesChartRef.current) {
+                    const ctxSales = salesChartRef.current.getContext('2d');
+                    new Chart(ctxSales, {
+                        type: 'bar',
+                        data: {
+                            labels: ['Outubro', 'Novembro', 'Dezembro', 'Janeiro*'],
+                            datasets: [{
+                                label: 'Festas Pagas (Vendas)',
+                                data: [21, 14, 18, 9],
+                                backgroundColor: [
+                                    'rgba(59, 130, 246, 0.5)',
+                                    'rgba(59, 130, 246, 0.5)',
+                                    'rgba(59, 130, 246, 0.5)',
+                                    'rgba(245, 158, 11, 0.8)' // Amarelo para Janeiro (Parcial)
+                                ],
+                                borderColor: [
+                                    'rgba(59, 130, 246, 1)',
+                                    'rgba(59, 130, 246, 1)',
+                                    'rgba(59, 130, 246, 1)',
+                                    'rgba(245, 158, 11, 1)'
+                                ],
+                                borderWidth: 2,
+                                borderRadius: 6
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    backgroundColor: '#1e293b',
+                                    padding: 12,
+                                    titleFont: { size: 14 },
+                                    bodyFont: { size: 14 }
+                                }
+                            },
+                            scales: {
+                                y: { beginAtZero: true, grid: { display: false } },
+                                x: { grid: { display: false } }
+                            }
+                        }
+                    });
+                }
+            }, []);
+
+            return (
+                <div className="max-w-6xl mx-auto px-4 py-12 animate-fade-in pb-24">
+                    
+                    {/* Top Bar / Branding */}
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-12 gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-blue-600 p-2 rounded-lg">
+                                <Icon name="bar-chart-2" size={24} color="white" />
+                            </div>
+                            <div>
+                                <h2 className="text-slate-800 font-bold text-lg leading-none">Relatório de Inteligência</h2>
+                                <p className="text-slate-500 text-xs uppercase tracking-widest">Janeiro 2026</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <Badge icon="check-circle" text="Estratégia Validada" colorClass="bg-emerald-100 text-emerald-700" />
+                            <Badge icon="zap" text="Alta Performance" colorClass="bg-amber-100 text-amber-700" />
+                        </div>
+                    </div>
+
+                    {/* Hero Section */}
+                    <header className="text-center mb-16 relative">
+                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-blue-200 rounded-full blur-3xl opacity-20 -z-10"></div>
+                        <h1 className="text-4xl md:text-6xl font-extrabold text-slate-900 mb-6 tracking-tight">
+                            "Compramos o <span className="text-emerald-500 underline decoration-4 decoration-emerald-200">Dobro</span> <br/>pela <span className="text-blue-500">Metade</span> do Preço"
+                        </h1>
+                        <p className="text-xl text-slate-600 max-w-3xl mx-auto leading-relaxed">
+                            Em Janeiro, o mercado "adormeceu" e nós aceleramos. O resultado? <br/>
+                            Encontramos uma mina de ouro de leads baratos e dominamos o leilão.
+                        </p>
+                    </header>
+
+                    {/* KPI Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                        <StatCard 
+                            title="Custo Por Oportunidade" 
+                            value="R$ 5,00" 
+                            subtext="Preço pago para um cliente chamar no WhatsApp."
+                            trend="-44% vs Dezembro"
+                            icon="tag"
+                            color="bg-emerald-500"
+                            footer="Em Dezembro pagávamos R$ 8,89 pelo mesmo resultado."
+                        />
+                        <StatCard 
+                            title="Volume de Leads" 
+                            value="450+" 
+                            subtext="Pessoas interessadas iniciadas no funil."
+                            trend="Recorde Mensal"
+                            icon="users"
+                            color="bg-blue-500"
+                            footer="Um exército de potenciais clientes para o comercial."
+                        />
+                        <StatCard 
+                            title="Investimento Inteligente" 
+                            value="100%" 
+                            subtext="Aproveitamento total da verba em alta performance."
+                            trend="Eficiência Máxima"
+                            icon="target"
+                            color="bg-purple-500"
+                            footer="Alocamos os recursos onde o retorno foi maior e mais rápido."
+                        />
+                    </div>
+
+                    {/* Sales Performance Section */}
+                    <div className="bg-white p-8 rounded-2xl card-shadow border border-slate-100 mb-12">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+                            <div>
+                                <h3 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-2">
+                                    <Icon name="shopping-bag" size={28} color="#0f172a" />
+                                    Performance de Vendas (Festas Pagas)
+                                </h3>
+                                <p className="text-slate-600 mb-6 leading-relaxed">
+                                    Mantivemos consistência nas vendas ao longo dos meses. Janeiro, mesmo sendo um mês de "ressaca" para o mercado, já apresenta <strong>9 festas garantidas</strong> na primeira quinzena.
+                                </p>
+                                <div className="space-y-3">
+                                    <div className="flex justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                                        <span className="font-medium text-slate-600">Outubro</span>
+                                        <span className="font-bold text-slate-800">21 Festas</span>
+                                    </div>
+                                    <div className="flex justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                                        <span className="font-medium text-slate-600">Novembro</span>
+                                        <span className="font-bold text-slate-800">14 Festas</span>
+                                    </div>
+                                    <div className="flex justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                                        <span className="font-medium text-slate-600">Dezembro</span>
+                                        <span className="font-bold text-slate-800">18 Festas</span>
+                                    </div>
+                                    <div className="flex justify-between p-3 bg-amber-50 rounded-lg border border-amber-100">
+                                        <span className="font-medium text-amber-800 flex items-center gap-2">
+                                            Janeiro (Parcial até dia 14) 
+                                            <Icon name="clock" size={14} />
+                                        </span>
+                                        <span className="font-bold text-amber-800">9 Festas</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="h-64 w-full">
+                                <canvas ref={salesChartRef}></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Creative Analysis Section */}
+                    <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-3xl p-8 md:p-12 text-white shadow-2xl mb-16">
+                        <div className="flex flex-col md:flex-row gap-12 items-center">
+                            
+                            {/* Visual Placeholder for Creative */}
+                            <div className="w-full md:w-1/2">
+                                <div className="relative bg-slate-700 aspect-square rounded-2xl border-4 border-slate-600 flex items-center justify-center overflow-hidden group hover:border-emerald-500 transition-colors">
+                                    
+                                    {/* Imagem do Cliente */}
+                                    <img 
+                                        src="image_bd1d04.jpg" 
+                                        alt="Criativo Campeão AD 03 DEZEMBRO" 
+                                        className="w-full h-full object-cover opacity-95 group-hover:opacity-100 transition-opacity duration-300"
+                                        onError={(e) => {
+                                            e.target.style.display = 'none';
+                                            e.target.nextSibling.style.display = 'flex';
+                                        }}
+                                    />
+
+                                    {/* Fallback caso a imagem não carregue */}
+                                    <div className="absolute inset-0 hidden flex-col items-center justify-center p-6 text-center">
+                                        <Icon name="image" size={48} className="mx-auto mb-4 text-slate-400 group-hover:text-emerald-400" />
+                                        <p className="font-bold text-slate-300 group-hover:text-white">Anúncio Campeão: "AD 03 - DEZEMBRO"</p>
+                                        <p className="text-xs text-slate-500 mt-2">Salve o arquivo do criativo na mesma pasta.</p>
+                                    </div>
+
+                                    {/* Overlay Badge */}
+                                    <div className="absolute top-4 right-4 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg z-10">
+                                        CPL R$ 3,75
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Text Analysis */}
+                            <div className="w-full md:w-1/2">
+                                <div className="inline-block bg-emerald-500/20 text-emerald-300 text-xs font-bold px-3 py-1 rounded-full mb-4 border border-emerald-500/30">
+                                    Raio-X do Criativo
+                                </div>
+                                <h3 className="text-3xl font-bold mb-6">Por que este anúncio venceu?</h3>
+                                <ul className="space-y-6">
+                                    <li className="flex gap-4">
+                                        <div className="bg-white/10 p-2 rounded-lg h-fit"><Icon name="message-square" size={20} /></div>
+                                        <div>
+                                            <h4 className="font-bold text-lg">Volume Massivo (159 Conversas)</h4>
+                                            <p className="text-slate-400 text-sm leading-relaxed">
+                                                O anúncio <strong>"AD 03 - DEZEMBRO"</strong> foi o grande motor da operação, gerando sozinho 159 conversas a um custo incrivelmente baixo de <strong>R$ 3,75</strong>.
+                                            </p>
+                                        </div>
+                                    </li>
+                                    <li className="flex gap-4">
+                                        <div className="bg-white/10 p-2 rounded-lg h-fit"><Icon name="calendar" size={20} /></div>
+                                        <div>
+                                            <h4 className="font-bold text-lg">Efeito "Última Chance"</h4>
+                                            <p className="text-slate-400 text-sm leading-relaxed">
+                                                O uso de datas (mesmo remetendo a Dezembro) criou um forte senso de oportunidade no público, filtrando curiosos e atraindo quem realmente queria fechar rápido.
+                                            </p>
+                                        </div>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* NEW SECTION: ROAS/Financial Analysis */}
+                    <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-xl mb-16 overflow-hidden">
+                        <div className="flex flex-col lg:flex-row gap-12 items-center">
+                            
+                            {/* Text Analysis */}
+                            <div className="w-full lg:w-1/2 order-2 lg:order-1">
+                                <div className="inline-block bg-blue-100 text-blue-700 text-xs font-bold px-3 py-1 rounded-full mb-4">
+                                    A Prova Real: Matemática do Lucro
+                                </div>
+                                <h3 className="text-3xl font-bold text-slate-800 mb-6">Investimento que se Paga (e Sobra)</h3>
+                                <p className="text-slate-600 mb-6 leading-relaxed">
+                                    Não olhamos apenas para leads, olhamos para o dinheiro no caixa. A sua Calculadora de ROAS (Retorno sobre Investimento) comprova que a operação não só é saudável, mas está <strong>acima da meta de lucratividade</strong>.
+                                </p>
+                                
+                                <div className="grid grid-cols-2 gap-4 mb-6">
+                                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                        <p className="text-xs text-slate-500 uppercase font-bold mb-1">Faturamento Bruto</p>
+                                        <p className="text-2xl font-bold text-slate-800">R$ 73.780,00</p>
+                                        <p className="text-xs text-slate-400 mt-1">Gerado com 62 vendas</p>
+                                    </div>
+                                    <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                                        <p className="text-xs text-emerald-600 uppercase font-bold mb-1">ROAS (Retorno)</p>
+                                        <p className="text-3xl font-bold text-emerald-700">5.68x</p>
+                                        <p className="text-xs text-emerald-600 mt-1 font-medium">Meta era apenas 4.76x</p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                                    <Icon name="check-circle" size={20} className="text-blue-600 mt-1 flex-shrink-0" />
+                                    <p className="text-sm text-blue-800">
+                                        <strong>Superamos a Expectativa:</strong> Para atingir o faturamento necessário de R$ 61k, o ROAS mínimo calculado era de 4.76. <br/>
+                                        Entregamos <strong>5.68</strong>, gerando um "excedente" de lucro operacional e provando a eficiência do tráfego.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Image Placeholder for ROAS Calculator */}
+                            <div className="w-full lg:w-1/2 order-1 lg:order-2">
+                                <div className="relative bg-slate-100 aspect-[4/3] rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center group hover:border-blue-400 transition-colors overflow-hidden">
+                                     {/* Imagem do Cliente (Calculadora) */}
+                                     <img 
+                                        src="image_roas_calc.png" 
+                                        alt="Calculadora de ROAS" 
+                                        className="w-full h-full object-contain opacity-95 group-hover:opacity-100 transition-opacity duration-300"
+                                        onError={(e) => {
+                                            e.target.style.display = 'none';
+                                            e.target.nextSibling.style.display = 'flex';
+                                        }}
+                                    />
+                                     <div className="hidden flex-col items-center justify-center p-8 text-center">
+                                        <Icon name="calculator" size={48} className="mx-auto mb-4 text-slate-300 group-hover:text-blue-400" />
+                                        <p className="font-bold text-slate-400 group-hover:text-blue-500 mb-2">Coloque o Print da Calculadora de ROAS aqui</p>
+                                        <p className="text-xs text-slate-400">Nome do arquivo sugerido: "image_roas_calc.png"</p>
+                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Split Section: Graph & Funnel */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-16">
+                        
+                        {/* Left: The Trend Graph */}
+                        <div className="lg:col-span-7 bg-white p-8 rounded-2xl card-shadow border border-slate-100">
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h3 className="text-xl font-bold text-slate-800">📉 Queda Livre de Custos</h3>
+                                    <p className="text-sm text-slate-500">Veja como otimizamos o preço de aquisição mês a mês.</p>
+                                </div>
+                            </div>
+                            <div className="relative h-72 w-full">
+                                <canvas ref={chartRef}></canvas>
+                            </div>
+                            <div className="mt-6 bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-4 items-start">
+                                <div className="mt-1 bg-blue-500 text-white p-1 rounded-full">
+                                    <Icon name="lightbulb" size={16} />
+                                </div>
+                                <p className="text-sm text-blue-800 leading-relaxed">
+                                    <strong>O que isso significa?</strong> <br/>
+                                    Com R$ 1.000,00 em Dezembro, trazíamos ~112 clientes. <br/>
+                                    Com R$ 1.000,00 em Janeiro, trouxemos <strong>~200 clientes</strong>. <br/>
+                                    Seu dinheiro valeu muito mais este mês.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Right: The Funnel Visualization */}
+                        <div className="lg:col-span-5 bg-white p-8 rounded-2xl card-shadow border border-slate-100 flex flex-col justify-center">
+                            <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                <Icon name="filter" size={20} color="#0f172a" />
+                                Funil de Janeiro
+                            </h3>
+                            
+                            <FunnelStep label="Visualizaram (Alcance)" value="~25.000" color="bg-slate-300" width="100%" icon="eye" />
+                            <FunnelStep label="Clicaram (Interesse)" value="~2.100" color="bg-blue-400" width="65%" icon="mouse-pointer" />
+                            <FunnelStep label="Chamaram (Leads)" value="453" color="bg-emerald-500" width="40%" icon="message-circle" />
+                            
+                            <div className="mt-8 text-center">
+                                <div className="inline-block bg-slate-800 text-white px-6 py-2 rounded-full text-sm font-bold shadow-lg transform hover:scale-105 transition-transform">
+                                    🎯 9 Vendas (Até 14/01)
+                                </div>
+                                <p className="text-xs text-slate-400 mt-2">
+                                    Ainda temos centenas de leads em negociação no funil.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Battle Arena: Comparison Table */}
+                    <div className="mb-16">
+                        <h2 className="text-2xl font-bold text-slate-800 mb-6 text-center">⚔️ O Duelo: Dezembro vs. Janeiro</h2>
+                        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+                            <div className="grid grid-cols-3 bg-slate-50 border-b border-slate-200 p-4 text-center font-bold text-slate-600 text-sm uppercase tracking-wider">
+                                <div>Métrica</div>
+                                <div>Dezembro (Passado)</div>
+                                <div className="text-emerald-600">Janeiro (Atual)</div>
+                            </div>
+                            
+                            <div className="grid grid-cols-3 p-5 border-b border-slate-100 hover:bg-blue-50 transition-colors items-center">
+                                <div className="text-center font-semibold text-slate-700 flex flex-col items-center gap-1">
+                                    <span className="bg-slate-200 p-1.5 rounded text-slate-600"><Icon name="dollar-sign" size={16} /></span>
+                                    Custo por Lead
+                                </div>
+                                <div className="text-center text-slate-500 font-medium">R$ 8,89</div>
+                                <div className="text-center text-emerald-600 font-bold text-lg bg-emerald-50 py-1 rounded-lg border border-emerald-100">
+                                    R$ 5,00
+                                </div>
+                            </div>
+
+                             <div className="grid grid-cols-3 p-5 border-b border-slate-100 hover:bg-blue-50 transition-colors items-center">
+                                <div className="text-center font-semibold text-slate-700 flex flex-col items-center gap-1">
+                                    <span className="bg-slate-200 p-1.5 rounded text-slate-600"><Icon name="activity" size={16} /></span>
+                                    Custo para Aparecer (CPM)
+                                </div>
+                                <div className="text-center text-slate-500 font-medium">~R$ 25,00</div>
+                                <div className="text-center text-emerald-600 font-bold text-lg">
+                                    R$ 19,15
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 p-5 hover:bg-blue-50 transition-colors items-center">
+                                <div className="text-center font-semibold text-slate-700 flex flex-col items-center gap-1">
+                                    <span className="bg-slate-200 p-1.5 rounded text-slate-600"><Icon name="award" size={16} /></span>
+                                    Veredito
+                                </div>
+                                <div className="text-center text-slate-400 text-sm">Bom</div>
+                                <div className="text-center text-emerald-600 font-bold text-sm uppercase">
+                                    Excelente (Mais rentável)
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Intelligence Section (New Request) */}
+                    <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-3xl p-8 md:p-12 text-white shadow-xl mb-16 relative overflow-hidden border border-slate-700">
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob"></div>
+                        <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
+                        
+                        <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
+                            <div className="flex-1">
+                                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold uppercase tracking-wider mb-4 border border-blue-500/30">
+                                    <Icon name="sparkles" size={14} />
+                                    Ativo Estratégico
+                                </div>
+                                <h3 className="text-3xl font-bold mb-4">Inteligência Artificial a Nosso Favor</h3>
+                                <p className="text-slate-300 text-lg leading-relaxed mb-6">
+                                    Com o volume recorde de dados gerados (<span className="text-white font-bold">450+ conversas</span>), o algoritmo agora sabe <strong>exatamente</strong> quem é o seu cliente ideal.
+                                    <br/><br/>
+                                    Isso significa que Fevereiro tende a começar já com uma performance otimizada, pois a "máquina" já aprendeu o caminho das pedras para encontrar compradores.
+                                </p>
+                                <div className="inline-block bg-emerald-500/20 border border-emerald-500/30 rounded-xl p-4">
+                                    <p className="text-emerald-300 font-bold flex items-center gap-2">
+                                        ✅ O maior ativo de Janeiro foi a inteligência gerada.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="hidden md:flex justify-center items-center p-8">
+                                <Icon name="brain" size={120} className="text-slate-700/50" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Final CTA */}
+                    <div className="text-center pt-8 border-t border-slate-200">
+                        <h2 className="text-2xl font-bold text-slate-800 mb-4">Próxima Missão: Conversão Total 🚀</h2>
+                        <p className="text-slate-500 max-w-xl mx-auto mb-8">
+                            O tráfego encheu a casa. Agora a bola está com o time de vendas para transformar esses 450 contatos em festas inesquecíveis.
+                        </p>
+                        <button className="bg-slate-900 text-white px-8 py-4 rounded-full font-bold hover:bg-slate-800 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1 flex items-center gap-3 mx-auto">
+                            <Icon name="thumbs-up" size={20} />
+                            Aprovar Continuidade da Estratégia
+                        </button>
+                    </div>
+
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
